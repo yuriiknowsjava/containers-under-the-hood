@@ -1,0 +1,49 @@
+FROM ubuntu:22.04
+
+RUN apt update && apt install openssh-server sudo -y
+
+RUN groupadd ssh-group
+
+# A user that can be access within this container via ssh with password
+# For instance
+#   ssh passuser@localhost -p 2022
+ARG USER_AUTH_WITH_PASSWD=passuser
+RUN useradd -d /home/${USER_AUTH_WITH_PASSWD} -m -s /bin/bash -g ssh-group ${USER_AUTH_WITH_PASSWD}
+RUN echo "password\npassword" | passwd ${USER_AUTH_WITH_PASSWD}
+
+
+# A user that can be access within this container vis ssh with pub/private keys
+# For instance,
+#   ssh -p 2022 rsauser@localhost -i ./test-rsa-key_do_not_use
+# secure copy works over ssh, but for some reason port option is in uppercase
+#   scp -P 2022 -i ./test-rsa-key_do_not_use ./bash-script.sh rsauser@localhost:/home/rsauser/bash-script.sh
+# sftp also works over ssh. Order of options does matter, put the identity (private key) first
+#   sftp -i ./test-rsa-key_do_not_use -P 2022 rsauser@localhost
+#   "sftp works in interructive mode, type help to see available commands."
+ARG USER_AUTH_WITH_RSA_KEY=rsauser
+RUN useradd -d /home/${USER_AUTH_WITH_RSA_KEY} -m -s /bin/bash -g ssh-group ${USER_AUTH_WITH_RSA_KEY}
+RUN mkdir -p /home/${USER_AUTH_WITH_RSA_KEY}/.ssh
+# Copy public key
+COPY ./test-rsa-key_do_not_use.pub /home/${USER_AUTH_WITH_RSA_KEY}/.ssh/authorized_keys
+# rw for the use, read for group, none for others
+RUN chown ${USER_AUTH_WITH_RSA_KEY} /home/${USER_AUTH_WITH_RSA_KEY}/.ssh/authorized_keys \
+    && chgrp ssh-group /home/${USER_AUTH_WITH_RSA_KEY}/.ssh/authorized_keys \
+    && chmod 640 /home/${USER_AUTH_WITH_RSA_KEY}/.ssh/authorized_keys
+
+
+RUN service ssh start 
+EXPOSE 22
+
+CMD ["/usr/sbin/sshd", "-D"]
+
+# BUILDME: 
+# docker build -t ubuntu-ssh -f Dockerfile.ssh .
+
+# RUNME:
+# docker run --rm -it --name ubuntu-ssh -p 2022:22 ubuntu-ssh
+
+# SSH config docs
+# https://www.ssh.com/academy/ssh/config
+
+# If you use AWS and get an error that keypair is unprotected, change mod:
+# chmod 0400 some-key.pem
